@@ -93,6 +93,22 @@ function factoryPlatformTokenValid(string $platform, string $token): bool
     return false;
 }
 
+function factoryKeyboardRows(array $buttons, int $perRow = 2): array
+{
+    if ($perRow < 1 || $perRow > 4) {
+        throw new RuntimeException('keyboard_row_size_invalid');
+    }
+    $rows = [];
+    for ($index = 0, $count = count($buttons); $index < $count; $index += $perRow) {
+        $row = [];
+        for ($offset = 0; $offset < $perRow && isset($buttons[$index + $offset]); $offset++) {
+            $row[] = $buttons[$index + $offset];
+        }
+        $rows[] = $row;
+    }
+    return $rows;
+}
+
 function factoryProviderErrorCode(string $description, int $status): string
 {
     $description = strtolower($description);

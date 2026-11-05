@@ -132,6 +132,9 @@ $check(str_contains($factorySource, 'function factoryWriteTenantStatus'), 'start
 $check(str_contains($factorySource, 'rubika_route_required'), 'Rubika package blocked before payment without HTTPS route');
 $check(!str_contains($factorySource, 'factoryStartRuntime('), 'legacy auto-start provisioning path removed');
 
+$check(!str_contains($factorySource, 'array_chunk($rows, 2)'), 'platform menu avoids invalid array-chunk markup');
+$check(str_contains($factorySource, 'factoryKeyboardRows($buttons, 2)'), 'platform menu uses validated keyboard rows');
+
 $workerSource = file_get_contents(__DIR__ . '/modasr-hosting-tenants/worker-template.php');
 $check(str_contains($workerSource, "'soroush' => 'https://api.splus.ir/bot'"), 'Soroush long polling transport exists');
 $check(str_contains($workerSource, "'bale' => 'https://tapi.bale.ai/bot'"), 'Bale long polling transport exists');
@@ -155,6 +158,14 @@ $backupSource = substr($factorySource, $backupStart, $backupEnd - $backupStart);
 $check(!str_contains($backupSource, 'ZipArchive'), 'Backup ZIP is never extracted');
 $check(!str_contains($backupSource, '->exec('), 'Backup SQL is never executed');
 
+$keyboardRows = factoryKeyboardRows([
+    ['text' => 'a', 'callback_data' => 'a'],
+    ['text' => 'b', 'callback_data' => 'b'],
+    ['text' => 'c', 'callback_data' => 'c'],
+    ['text' => 'd', 'callback_data' => 'd'],
+], 2);
+$check(count($keyboardRows) === 2 && count($keyboardRows[0]) === 2 && count($keyboardRows[1]) === 2, 'keyboard rows have valid two-button structure');
+$check($keyboardRows[0][0]['text'] === 'a' && $keyboardRows[0][1]['text'] === 'b', 'keyboard button order preserved');
 $check(factoryProviderErrorCode('Bad Request: can\'t parse reply markup', 400) === 'provider_rejected_400|reply_markup', 'reply markup error is classified');
 $check(factoryProviderErrorCode('Bad Request: message text is empty', 400) === 'provider_rejected_400|message_empty', 'empty message error is classified');
 $check(factoryProviderErrorCode('Bad Request: query is too old', 400) === 'provider_rejected_400|callback_query', 'old callback error is classified');

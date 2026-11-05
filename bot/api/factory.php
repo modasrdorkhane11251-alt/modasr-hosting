@@ -1390,15 +1390,15 @@ try {
         $count = (int) $matches[1];
         $choices = factoryPlanChoices($count);
         $labels = factoryCatalogPlatforms();
-        $rows = [];
+        $buttons = [];
         foreach ($choices as $planCode => $package) {
             $platformLabels = array_map(static fn(string $platform): string => $labels[$platform], $package[1]);
-            $rows[] = [[
+            $buttons[] = [
                 'text' => implode(' + ', $platformLabels),
                 'callback_data' => 'factory_platform_' . substr($planCode, 2),
-            ]];
+            ];
         }
-        $keyboard = ['inline_keyboard' => array_chunk($rows, 2)];
+        $keyboard = ['inline_keyboard' => factoryKeyboardRows($buttons, 2)];
         $keyboard['inline_keyboard'][] = [['text' => '⬅️ نوع بسته', 'callback_data' => 'factory_type_vpn']];
         factorySavePending($pdo, $ownerId, 'platform');
         $title = match ($count) {
