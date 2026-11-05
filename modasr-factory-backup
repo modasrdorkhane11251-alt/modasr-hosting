@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+umask 077
+
+backup_root=/root/modasr-backups
+key_file="$backup_root/.bot-factory-backup.key"
+mkdir -p "$backup_root"
+if [ ! -f "$key_file" ]; then
+  openssl rand -hex 32 > "$key_file"
+  chmod 600 "$key_file"
+fi
+MODASR_BACKUP_PASSWORD=$(cat "$key_file")
+export MODASR_BACKUP_PASSWORD
+
+timestamp=$(date -u +%Y%m%d-%H%M%S)
+workdir="$backup_root/.factory-backup-$timestamp"
+target="$backup_root/bot-factory-$timestamp.tar.enc"
+mkdir -p "$workdir"
+chmod 700 "$workdir"
+
+php -r '
+$e=parse_ini_file("/var/www/modasr-hosting-staging/.env");
+$dsn="mysql:host={$e["FACTORY_DB_HOST"]};port={$e["FACTORY_DB_PORT"]};dbname={$e["FACTORY_DB_NAME"]};charset=utf8mb4";
+$pdo=new PDO($dsn,$e["FACTORY_DB_USER"],$e["FACTORY_DB_PASSWORD"],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+$tables=$pdo->query("SHOW TABLES LIKE \"factory_%\"")->fetchAll(PDO::FETCH_COLUMN);
+$out=[];
+foreach($tables as $table){
+  $out[$table]=$pdo->query("SELECT * FROM `".$table."`")->fetchAll(PDO::FETCH_ASSOC);
+}
+file_put_contents($argv[1],json_encode($out,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
+' "$workdir/factory-export.json"
+chmod 600 "$workdir/factory-export.json"
+cp /var/www/modasr-hosting-tenants/worker-template.php "$workdir/worker-template.php"
+chmod 600 "$workdir/worker-template.php"
+printf 'MODASR Bot Factory encrypted backup\nTimestamp: %s\nContents: factory tables JSON and worker template. No config or env files are included.\n' "$timestamp" > "$workdir/README.txt"
+chmod 600 "$workdir/README.txt"
+
+tar -C "$workdir" -cf - . | openssl enc -aes-256-cbc -pbkdf2 -iter 260000 -salt -pass env:MODASR_BACKUP_PASSWORD -out "$target"
+chmod 600 "$target"
+sha256sum "$target"
+rm -f "$workdir/factory-export.json" "$workdir/worker-template.php" "$workdir/README.txt"
+rmdir "$workdir"
+printf 'backup_path=%s\n' "$target"
