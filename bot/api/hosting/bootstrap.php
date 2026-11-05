@@ -11,7 +11,7 @@ require_once __DIR__ . '/../../lib/hosting/InstanceRepository.php';
 
 function hostingApplyCoreMigrations(PDO $pdo, string $botRoot): void
 {
-    foreach (['001_core', '002_factory_constraints'] as $name) {
+    foreach (['001_core', '002_factory_constraints', '003_web_sessions', '004_instance_factory_link'] as $name) {
         $migration = require $botRoot . '/db/migrations/hosting/' . $name . '.php';
         $migration($pdo);
     }

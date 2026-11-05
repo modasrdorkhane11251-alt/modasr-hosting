@@ -7,6 +7,8 @@ require_once '/var/www/modasr-hosting-full/bot/api/factory_workflow.php';
 require_once '/var/www/modasr-hosting-full/bot/api/factory_payment.php';
 require_once '/var/www/modasr-hosting-full/bot/api/factory_catalog.php';
 require_once '/var/www/modasr-hosting-full/bot/api/factory_tenant.php';
+require_once '/var/www/modasr-hosting-full/bot/api/factory_logging.php';
+require_once '/var/www/modasr-hosting-full/bot/api/factory_runtime.php';
 
 $providedSecret = (string) ($_GET['secret'] ?? '');
 $relaySecret = (string) getenv('MODASR_RELAY_SECRET');
@@ -189,6 +191,15 @@ function factoryMenu(): array
     return $keyboard;
 }
 
+function factoryMenuWithPanel(PDO $pdo, string $ownerId): array
+{
+    $menu = factoryMenu();
+    $menu['inline_keyboard'][] = [
+        ['text' => '🌐 پنل مدیریت وب', 'url' => factoryWebPanelUrl($pdo, $ownerId, (bool) ($GLOBALS['isOwner'] ?? false)),
+    ]];
+    return $menu;
+}
+
 function factoryPaymentPanel(PDO $pdo, array $order): array
 {
     $orderId = (int) $order['id'];
@@ -212,12 +223,6 @@ function factoryPaymentPanel(PDO $pdo, array $order): array
         'text' => "💳 <b>پرداخت سفارش #{$orderId}</b>\n\nمبلغ: {$amountLabel}\nوضعیت: {$statusLabel}\n\nربات هنوز ساخته نشده و تا ثبت paid ساخته نمی‌شود.{$paymentGuide}",
         'keyboard' => $keyboard,
     ];
-}
-
-function factoryLog(PDO $pdo, string $ownerId, string $action, ?string $username = null, ?string $detail = null): void
-{
-    $stmt = $pdo->prepare('INSERT INTO factory_event (owner_id, action, bot_username, detail) VALUES (?, ?, ?, ?)');
-    $stmt->execute([$ownerId, $action, $username, $detail]);
 }
 
 function factorySetting(PDO $pdo, string $key, string $default): string
@@ -517,7 +522,7 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
         ];
         $tenantCore = null;
         if (factoryTenantCoreEnabled()) {
-            $tenantCore = factoryTenantSyncInstances($pdo, $ownerId, $plan, $identities, $tokens);
+            $tenantCore = factoryTenantSyncInstances($pdo, $ownerId, $plan, $identities, $tokens, $factoryId);
             $tenant['tenant_key'] = (string) $tenantCore['tenant']['tenant_key'];
             factoryTenantRecordOrder($pdo, $tenant['tenant_key'], (int) $orderId, $plan['code'], (int) $order['amount_toman'], 'telegram');
         }
@@ -574,53 +579,6 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
     }
 }
 
-function factoryWriteTenantStatus(int $factoryId, string $status): void
-{
-    if (!in_array($status, ['active', 'stopped'], true)) {
-        throw new RuntimeException('invalid_runtime_action');
-    }
-    $root = '/var/www/modasr-hosting-tenants/' . $factoryId;
-    $file = $root . '/tenant.json';
-    $tenant = json_decode((string) file_get_contents($file), true);
-    if (!is_array($tenant) || (int) ($tenant['id'] ?? 0) !== $factoryId) {
-        throw new RuntimeException('tenant_status_failed');
-    }
-    $tenant['status'] = $status;
-    $tmp = $root . '/tenant.json.tmp';
-    file_put_contents($tmp, json_encode($tenant, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), LOCK_EX);
-    chmod($tmp, 0640);
-    if (!rename($tmp, $file)) {
-        throw new RuntimeException('tenant_status_failed');
-    }
-}
-
-function factoryRuntimeAction(PDO $pdo, int $factoryId, string $action, string $adminId): void
-{
-    $stmt = $pdo->prepare('SELECT * FROM factory_bot WHERE id = ?');
-    $stmt->execute([$factoryId]);
-    $bot = $stmt->fetch();
-    if (!is_array($bot)) {
-        throw new RuntimeException('bot_not_found');
-    }
-    if (!in_array($action, ['stop', 'start'], true)) {
-        throw new RuntimeException('invalid_runtime_action');
-    }
-    $output = [];
-    $code = 0;
-    exec('sudo -n /usr/local/sbin/modasr-factory-spawn ' . $factoryId . ' ' . $action . ' 2>&1', $output, $code);
-    if ($code !== 0) {
-        throw new RuntimeException('runtime_action_failed');
-    }
-    $status = $action === 'stop' ? 'stopped' : 'active';
-    $update = $pdo->prepare('UPDATE factory_bot SET status = ? WHERE id = ?');
-    $update->execute([$status, $factoryId]);
-    $update = $pdo->prepare('UPDATE factory_order SET status = ? WHERE id = ?');
-    $update->execute([$status === 'active' ? 'active' : 'stopped', $bot['order_id']]);
-    factoryWriteTenantStatus($factoryId, $status);
-    factoryTenantSyncRuntimeStatus($pdo, $factoryId, $status, $adminId);
-    factoryLog($pdo, $adminId, 'runtime_' . $action, $bot['bot_username'], $status);
-}
-
 $update = json_decode((string) file_get_contents('php://input'), true);
 $isCallback = isset($update['callback_query']['message']);
 if (!is_array($update) || (!$isCallback && !isset($update['message']))) {
@@ -643,7 +601,7 @@ if ($ownerId === '' || $chatId === null) {
 $ownerTelegramId = (string) getenv('MODASR_OWNER_TELEGRAM_ID');
 $knownCommands = [
     '/start', '/factory', '/create', '/testbot', '/mybots', '/wallet', '/account',
-    '/notifications', '/settings', '/tutorial', '/support', '/plans', '/myorders', '/cancel', '/admin', '/allbots', '/health', '/customers', '/orders', '/logs', '/backup', '/setlimit', '/setprice', '/clearcard', '/newflow', '/flows', '/templates', '/jobs',
+    '/notifications', '/settings', '/tutorial', '/support', '/plans', '/myorders', '/webpanel', '/cancel', '/admin', '/allbots', '/health', '/customers', '/orders', '/logs', '/backup', '/setlimit', '/setprice', '/clearcard', '/newflow', '/flows', '/templates', '/jobs',
     'factory_type_vpn', 'factory_type_panel', 'factory_confirm', 'بات ساز', 'ربات ساز', 'ربات‌های من', 'ربات های من', 'لغو',
 ];
 
@@ -1061,6 +1019,12 @@ try {
     } elseif ($normalized === '/cancel' || $normalized === 'لغو') {
         factoryClearPending($pdo, $ownerId);
         factoryReply($chatId, 'درخواست ساخت ربات لغو شد. برای شروع دوباره /factory را بفرست.', factoryMenu());
+    } elseif ($normalized === '/webpanel') {
+        $url = factoryWebPanelUrl($pdo, $ownerId, $isOwner);
+        $keyboard = ['inline_keyboard' => [
+            [['text' => '🌐 پنل مدیریت وب', 'url' => $url]],
+        ]];
+        factoryReply($chatId, "🔐 <b>ورود به پنل مدیریت وب</b>\n\nاین لینک یک‌بارمصرف است و تا ۱۰ دقیقه اعتبار دارد. لینک را برای کسی دیگری نفرستید.", $keyboard);
     } elseif ($normalized === '/start' || $normalized === '/factory' || $normalized === 'بات ساز' || $normalized === 'ربات ساز') {
         factoryLog($pdo, $ownerId, 'open_factory');
         factoryReply($chatId, "💎 <b>MODASR Hosting Bot Factory</b>\n\nبه میزبانی ربات مدثر خوش آمدی.\n\nآیدی عددی شما: <code>{$ownerId}</code>\n\nاز این بخش می‌توانی ربات اختصاصی خودت را بسازی و روی هاست مدثر اجرا کنی.\nفعلاً فقط ربات نمایندگی VPN فعال است و هیچ اتصالی به پنل‌ها یا سایت‌های دیگر وجود ندارد.\n\nبرای شروع، «خرید و ساخت ربات اختصاصی» را انتخاب کن. سفارش پولی قبل از دریافت Token باید پرداخت و تأیید شود.", factoryMenu());
@@ -1553,7 +1517,7 @@ try {
                     'quarantine_failed' => "\nBackup: ذخیره قرنطینه ناموفق بود و نیاز به ارسال مجدد دارد.",
                     default => '',
                 };
-                factoryReply($chatId, "✅ <b>ربات کاملاً جدید ساخته شد</b>\n\nربات: @{$username}\nشماره سفارش: {$orderId}\nTenant: {$runtime['factory_id']}\nوضعیت: <b>خاموش</b>\n\nهیچ داده‌ای از ربات‌ها یا مشتری‌های مالک اصلی کپی نشده و هیچ سرویسی Start نشده است. مالک اصلی از /allbots آن را روشن می‌کند.{$backupText}", factoryMenu());
+                factoryReply($chatId, "✅ <b>ربات کاملاً جدید ساخته شد</b>\n\nربات: @{$username}\nشماره سفارش: {$orderId}\nTenant: {$runtime['factory_id']}\nوضعیت: <b>خاموش</b>\n\nهیچ داده‌ای از ربات‌ها یا مشتری‌های مالک اصلی کپی نشده و هیچ سرویسی Start نشده است. مالک اصلی از /allbots آن را روشن می‌کند.{$backupText}", factoryMenuWithPanel($pdo, $ownerId));
             } else {
                 factoryReply($chatId, "این سفارش قبلاً پردازش شده و ربات @{$username} در حالت خاموش ساخته شده است. ساخت یا روشن‌کردن تکراری انجام نشد.\n\nسرویس: {$runtime['service']}", factoryMenu());
             }

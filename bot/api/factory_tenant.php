@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once '/var/www/modasr-hosting-full/bot/api/hosting/bootstrap.php';
+require_once '/var/www/modasr-hosting-full/bot/web/lib/Auth.php';
 
 function factoryTenantCoreEnabled(): bool
 {
@@ -46,9 +47,12 @@ function factoryTenantProvisioner(PDO $pdo): HostingDatabaseProvisioner
     );
 }
 
-function factoryTenantSyncInstances(PDO $pdo, string $ownerId, array $plan, array $identities, array $tokens): array
+function factoryTenantSyncInstances(PDO $pdo, string $ownerId, array $plan, array $identities, array $tokens, int $factoryId = 0): array
 {
     $tenant = factoryTenantFindOrCreate($pdo, $ownerId);
+    $rbac = new HostingRbac($pdo);
+    $ownerPrincipal = $rbac->principal('telegram', $ownerId);
+    $rbac->assignRole((int) $ownerPrincipal['id'], 'TENANT_OWNER', (string) $tenant['tenant_key']);
     $provisioner = factoryTenantProvisioner($pdo);
     $instances = [];
     foreach ($plan['platforms'] as $platform) {
@@ -64,7 +68,7 @@ function factoryTenantSyncInstances(PDO $pdo, string $ownerId, array $plan, arra
             $instances[] = $existing;
             continue;
         }
-        $instances[] = $provisioner->createInstance(
+        $newInstance = $provisioner->createInstance(
             (string) $tenant['tenant_key'],
             'modasr_vpn',
             $platform,
@@ -74,6 +78,12 @@ function factoryTenantSyncInstances(PDO $pdo, string $ownerId, array $plan, arra
             '1.0',
             '1.0'
         );
+        if ($factoryId > 0) {
+            $link = $pdo->prepare('UPDATE hosting_bot_instance SET factory_bot_id = ? WHERE id = ?');
+            $link->execute([$factoryId, $newInstance['id']]);
+            $newInstance['factory_bot_id'] = $factoryId;
+        }
+        $instances[] = $newInstance;
     }
     return ['tenant' => $tenant, 'instances' => $instances];
 }
@@ -131,4 +141,17 @@ function factoryTenantSyncRuntimeStatus(PDO $pdo, int $factoryId, string $status
     $principal = $rbac->principal('telegram', $adminId);
     $audit = new HostingAuditLogger($pdo);
     $audit->append((int) $principal['id'], 'PLATFORM_OWNER', $tenantKey, 'instance.' . $status, 'tenant', $tenantKey, 'factory_runtime_action', ['factory_id' => $factoryId]);
+}
+
+function factoryWebPanelUrl(PDO $pdo, string $ownerId, bool $platformOwner): string
+{
+    $tenant = factoryTenantFindOrCreate($pdo, $ownerId);
+    $rbac = new HostingRbac($pdo);
+    $principal = $rbac->principal('telegram', $ownerId);
+    $role = $platformOwner ? 'PLATFORM_OWNER' : 'TENANT_OWNER';
+    $token = webIssueMagicToken($pdo, (string) $tenant['tenant_key'], (int) $principal['id'], $role);
+    $base = rtrim((string) (getenv('MODASR_WEB_BASE_URL') ?: 'https://bot.modasr.site/web/index.php'), '/');
+    $logger = new HostingAuditLogger($pdo);
+    $logger->append((int) $principal['id'], $role, (string) $tenant['tenant_key'], 'web.magic_link', 'web_session', $tenant['tenant_key'], null, ['role' => $role]);
+    return $base . '?token=' . $token;
 }
