@@ -6,6 +6,7 @@ require '/var/www/modasr-hosting-factory/config.php';
 require_once '/var/www/modasr-hosting-full/bot/api/factory_workflow.php';
 require_once '/var/www/modasr-hosting-full/bot/api/factory_payment.php';
 require_once '/var/www/modasr-hosting-full/bot/api/factory_catalog.php';
+require_once '/var/www/modasr-hosting-full/bot/api/factory_tenant.php';
 
 $providedSecret = (string) ($_GET['secret'] ?? '');
 $relaySecret = (string) getenv('MODASR_RELAY_SECRET');
@@ -394,7 +395,7 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
         $existing->execute([(int) $orderId]);
         $existingBot = $existing->fetch();
         if (is_array($existingBot)) {
-            if (in_array((string) $existingBot['status'], ['active', 'stopped'], true)) {
+            if (in_array((string) $existingBot['status'], ['active', 'stopped'], true) && is_file('/var/www/modasr-hosting-tenants/' . (int) $existingBot['id'] . '/tenant.json')) {
                 return ['factory_id' => (int) $existingBot['id'], 'service' => (string) $existingBot['service_name'], 'status' => (string) $existingBot['status']];
             }
             throw new RuntimeException('runtime_recovery_required');
@@ -417,7 +418,7 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
 
         $credentialsJson = json_encode(['tokens' => $tokens, 'identities' => $identities], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $service = 'modasr-hosting-tenant-' . $orderId . '.service';
-        $stmt = $pdo->prepare('INSERT INTO factory_bot (order_id, owner_id, bot_id, bot_name, bot_username, token_ciphertext, service_name, status) VALUES (?, ?, ?, ?, ?, ?, ?, "stopped")');
+        $stmt = $pdo->prepare('INSERT INTO factory_bot (order_id, owner_id, bot_id, bot_name, bot_username, token_ciphertext, service_name, status) VALUES (?, ?, ?, ?, ?, ?, ?, "provisioning")');
         $stmt->execute([$orderId, $ownerId, $botId, $botName, $username, factoryEncrypt($credentialsJson), $service]);
         $factoryId = (int) $pdo->lastInsertId();
         $service = 'modasr-hosting-tenant-' . $factoryId . '.service';
@@ -439,6 +440,7 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
             'owner_id' => $ownerId,
             'root_owner_ids' => array_filter([
                 'telegram' => (string) getenv('MODASR_OWNER_TELEGRAM_ID'),
+                'bale' => (string) getenv('MODASR_OWNER_BALE_ID'),
                 'rubika' => (string) getenv('MODASR_OWNER_RUBIKA_ID'),
                 'soroush' => (string) getenv('MODASR_OWNER_SOROUSH_ID'),
             ]),
@@ -449,6 +451,12 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
             'webhook_secret' => bin2hex(random_bytes(24)),
             'backup' => !empty($bundle['mirza_backup']) ? ['status' => 'quarantined'] : null,
         ];
+        $tenantCore = null;
+        if (factoryTenantCoreEnabled()) {
+            $tenantCore = factoryTenantSyncInstances($pdo, $ownerId, $plan, $identities, $tokens);
+            $tenant['tenant_key'] = (string) $tenantCore['tenant']['tenant_key'];
+            factoryTenantRecordOrder($pdo, $tenant['tenant_key'], (int) $orderId, $plan['code'], (int) $order['amount_toman'], 'telegram');
+        }
         file_put_contents($root . '/tenant.json', json_encode($tenant, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), LOCK_EX);
         chmod($root . '/tenant.json', 0640);
 
@@ -456,7 +464,14 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
         foreach ($plan['platforms'] as $platform) {
             $env .= strtoupper($platform) . "_TOKEN=" . $tokens[$platform] . "\n";
         }
-        $env .= "DB_HOST=127.0.0.1\nDB_PORT=3307\nDB_NAME=modasr_hosting_factory_staging\nDB_USER=modasrfactory\nDB_PASSWORD=" . getenv('FACTORY_DB_PASSWORD') . "\n";
+        $dbEnvironment = $tenantCore !== null
+            ? factoryTenantDatabaseEnvironment($pdo, $tenant['tenant_key'])
+            : [
+                'DB_NAME' => 'modasr_hosting_factory_staging',
+                'DB_USER' => 'modasrfactory',
+                'DB_PASSWORD' => (string) getenv('FACTORY_DB_PASSWORD'),
+            ];
+        $env .= "DB_HOST=127.0.0.1\nDB_PORT=3307\nDB_NAME=" . $dbEnvironment['DB_NAME'] . "\nDB_USER=" . $dbEnvironment['DB_USER'] . "\nDB_PASSWORD=" . $dbEnvironment['DB_PASSWORD'] . "\n";
         $env .= 'MODASR_OWNER_TELEGRAM_ID=' . (string) getenv('MODASR_OWNER_TELEGRAM_ID') . "\n";
         file_put_contents($root . '/.env', $env, LOCK_EX);
         chmod($root . '/.env', 0600);
@@ -476,6 +491,12 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
             $tenant['backup']['status'] = $backupStatus;
             file_put_contents($root . '/tenant.json', json_encode($tenant, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), LOCK_EX);
             chmod($root . '/tenant.json', 0640);
+        }
+
+        $finalize = $pdo->prepare('UPDATE factory_bot SET status = "stopped" WHERE id = ? AND status = "provisioning"');
+        $finalize->execute([$factoryId]);
+        if ($finalize->rowCount() !== 1) {
+            throw new RuntimeException('runtime_finalize_failed');
         }
 
         // Deliberately no spawner/systemd call: the tenant remains stopped
@@ -529,6 +550,7 @@ function factoryRuntimeAction(PDO $pdo, int $factoryId, string $action, string $
     $update = $pdo->prepare('UPDATE factory_order SET status = ? WHERE id = ?');
     $update->execute([$status === 'active' ? 'active' : 'stopped', $bot['order_id']]);
     factoryWriteTenantStatus($factoryId, $status);
+    factoryTenantSyncRuntimeStatus($pdo, $factoryId, $status, $adminId);
     factoryLog($pdo, $adminId, 'runtime_' . $action, $bot['bot_username'], $status);
 }
 

@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+owner="${1:-}"
+case "$owner" in
+  ''|*[!A-Za-z0-9_:\-]*)
+    echo "owner_invalid" >&2
+    exit 1
+    ;;
+esac
+
+export HOSTING_PROVISION_DSN='mysql:host=127.0.0.1;port=3307;dbname=modasr_hosting_factory_staging'
+export HOSTING_PROVISION_USER='root'
+HOSTING_PROVISION_PASSWORD=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' modasr-hosting-mysql | sed -n 's/^MYSQL_ROOT_PASSWORD=//p')
+export HOSTING_PROVISION_PASSWORD
+set -a
+. /var/www/modasr-hosting-staging/.env
+set +a
+exec /usr/bin/php /var/www/modasr-hosting-full/scripts/provision_tenant.php "$owner"
