@@ -128,6 +128,8 @@ $check(!str_contains($provisionSource, 'modasr-factory-spawn'), 'provisioning ne
 $check(str_contains($provisionSource, "'status' => 'stopped'"), 'new tenant is explicitly stopped');
 $check(str_contains($provisionSource, "'fresh_install' => true"), 'new tenant is marked as a fresh install');
 $check(str_contains($provisionSource, "'root_owner_ids'"), 'root owner aliases are tenant scoped');
+$check(str_contains($factorySource, 'function factoryPrepareFullCore'), 'full MODASR core is provisioned per tenant');
+$check(str_contains($factorySource, 'HOSTING_FULL_CORE_V1'), 'full core has an explicit feature flag');
 $check(str_contains($factorySource, 'function factoryWriteTenantStatus'), 'start and stop synchronize tenant status');
 $check(str_contains($factorySource, 'rubika_route_required'), 'Rubika package blocked before payment without HTTPS route');
 $check(!str_contains($factorySource, 'factoryStartRuntime('), 'legacy auto-start provisioning path removed');
@@ -142,6 +144,11 @@ $check(str_contains($workerSource, "'bale' => 3"), 'Bale has an independent upda
 $check(str_contains($workerSource, "platform . ':' . \$userId"), 'platform-prefixed user identities prevent collisions');
 $check(str_contains($workerSource, 'if (!$newEvent)'), 'duplicate updates return before sending a response');
 $check(str_contains($workerSource, "'root_owner_ids'"), 'worker checks hidden root owner');
+$check(str_contains($workerSource, 'function tenantRunCore'), 'worker delegates updates to the full MODASR core');
+$check(str_contains($workerSource, "proc_get_status"), 'worker reads real child process status');
+$check(!str_contains($workerSource, 'if ($code !== 0)'), 'worker does not rely on proc_close exit code');
+$coreIndexSource = file_get_contents(__DIR__ . '/bot/index.php');
+$check(str_contains($coreIndexSource, "if ((string) getenv('MODASR_WORKER_INTERNAL') !== '1')"), 'public webhook enforcement remains outside internal workers');
 $check(!str_contains($workerSource, "'command' => 'owner'"), 'owner command is not registered in customer commands');
 
 $invalidPlatformCount = false;
@@ -151,6 +158,10 @@ try {
     $invalidPlatformCount = $e->getMessage() === 'platform_count_invalid';
 }
 $check($invalidPlatformCount, 'invalid platform category is rejected');
+
+$configExampleSource = file_get_contents(__DIR__ . '/bot/config.example.php');
+$check(str_contains($configExampleSource, "getenv('DB_PORT')"), 'core config includes the tenant database port');
+$check(str_contains($configExampleSource, "';port='"), 'core DSN includes an explicit database port');
 
 $backupStart = strpos($factorySource, 'function factoryQuarantineMirzaBackup');
 $backupEnd = strpos($factorySource, 'function factoryProvisionRuntime', $backupStart);

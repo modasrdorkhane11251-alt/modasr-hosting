@@ -15,6 +15,7 @@ if (is_file($modasrEnvFile)) {
 
 $request_exec_timeout = 5000;
 $dbhost = getenv('DB_HOST') ?: 'localhost';
+$dbport = getenv('DB_PORT') ?: '3306';
 $dbname = getenv('DB_NAME') ?: 'modasr';
 $usernamedb = getenv('DB_USER') ?: 'modasr';
 $passworddb = getenv('DB_PASSWORD') ?: '';
@@ -24,7 +25,7 @@ $options = [
     PDO::ATTR_EMULATE_PREPARES => false,
     PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci',
 ];
-$dsn = 'mysql:host=' . $dbhost . ';dbname=' . $dbname . ';charset=utf8mb4';
+$dsn = 'mysql:host=' . $dbhost . ';port=' . $dbport . ';dbname=' . $dbname . ';charset=utf8mb4';
 try {
     $pdo = new PDO($dsn, $usernamedb, $passworddb, $options);
 } catch (\PDOException $e) {

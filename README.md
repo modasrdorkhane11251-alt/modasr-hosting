@@ -7,7 +7,8 @@ Private control plane and runtime templates for MODASR multi-tenant bot hosting.
 - PHP 8.2 / PDO MySQL control plane
 - Telegram Factory wizard with paid-order guard and manual receipt review
 - Versioned workflow engine
-- Tenant provisioning in stopped state
+- Tenant provisioning in stopped state with recovery support
+- Full MODASR VPN core copied and configured per tenant
 - Telegram, Bale and Soroush long-polling worker template
 - Fifteen packages across four platforms: Telegram, Bale, Rubika and Soroush
 - Rubika packages remain blocked until an independent HTTPS webhook route is available

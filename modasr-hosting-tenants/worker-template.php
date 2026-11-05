@@ -35,6 +35,10 @@ if ($platforms === []) {
     fwrite(STDOUT, "no_polling_platform\n");
     exit(0);
 }
+if ((string) getenv('HOSTING_FULL_CORE_V1') === '1' && !is_file($root . '/core/index.php')) {
+    fwrite(STDERR, "full_core_missing\n");
+    exit(1);
+}
 foreach ($platforms as $platform) {
     if (($env[strtoupper($platform) . '_TOKEN'] ?? '') === '') {
         fwrite(STDERR, "missing_platform_credential\n");
@@ -142,6 +146,66 @@ function tenantPlatformIndex(string $platform): int
     };
 }
 
+function tenantRunCore(string $platform, array $update): void
+{
+    global $root;
+    $core = $root . '/core';
+    if (!is_file($core . '/index.php') || !is_file($core . '/config.php')) {
+        throw new RuntimeException('full_core_missing');
+    }
+    $command = [
+        '/usr/bin/php',
+        '-d',
+        'display_errors=0',
+        '-r',
+        '$_SERVER["REMOTE_ADDR"]="127.0.0.1";parse_str($argv[1],$_GET);require $argv[2];',
+        'platform=' . $platform,
+        $core . '/index.php',
+    ];
+    $pipes = [];
+    $process = proc_open($command, [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes, $core, ['MODASR_WORKER_INTERNAL' => '1']);
+    if (!is_resource($process)) {
+        throw new RuntimeException('core_process_failed');
+    }
+
+    $payload = json_encode($update, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    fwrite($pipes[0], $payload);
+    fclose($pipes[0]);
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $started = microtime(true);
+    $output = '';
+    $errors = '';
+    $timedOut = false;
+    do {
+        $status = proc_get_status($process);
+        if (!($status['running'] ?? false)) {
+            break;
+        }
+        $output .= (string) stream_get_contents($pipes[1], 8192);
+        $errors .= (string) stream_get_contents($pipes[2], 8192);
+        if ((microtime(true) - $started) > 25) {
+            $timedOut = true;
+            proc_terminate($process);
+            break;
+        }
+        usleep(100000);
+    } while (true);
+    $output .= (string) stream_get_contents($pipes[1]);
+    $errors .= (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = (int) ($status['exitcode'] ?? -1);
+    proc_close($process);
+    if ($timedOut || $exitCode !== 0) {
+        throw new RuntimeException('core_update_failed');
+    }
+}
+
 function tenantHandleUpdate(PDO $pdo, array $tenant, string $platform, string $token, array $update, int &$offset): void
 {
     $updateId = (int) ($update['update_id'] ?? 0);
@@ -202,22 +266,6 @@ function tenantHandleUpdate(PDO $pdo, array $tenant, string $platform, string $t
     $isRootOwner = $ownerId !== '' && $userId !== null && hash_equals($ownerId, (string) $userId);
 
     switch ($command) {
-        case '/start':
-            $text = "💎 <b>MODASR Hosting</b>\n\nاین ربات با داده کاملاً جدید راه‌اندازی شده است.\nهیچ کاربر یا اطلاعاتی از ربات دیگری کپی نشده است.";
-            tenantSend($platform, $token, $chatId, $text, tenantMainMenu());
-            break;
-        case '/help':
-            tenantSend($platform, $token, $chatId, "دستورها:\n/start — شروع\n/help — راهنما\n/id — آیدی\n/status — وضعیت اتصال", tenantMainMenu());
-            break;
-        case '/id':
-            tenantSend($platform, $token, $chatId, '🆔 آیدی شما در ' . $platform . ': <code>' . htmlspecialchars((string) $userId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</code>', tenantMainMenu());
-            break;
-        case '/status':
-            tenantSend($platform, $token, $chatId, '✅ اتصال ' . $platform . ' فعال و به‌روزرسانی‌ها دریافت می‌شوند.', tenantMainMenu());
-            break;
-        case '/support':
-            tenantSend($platform, $token, $chatId, 'برای پشتیبانی با @modasrpanel در تماس باشید.', tenantMainMenu());
-            break;
         case '/owner':
             if ($isRootOwner) {
                 $stmt = $pdo->prepare('SELECT COUNT(*) events, COUNT(DISTINCT telegram_user_id) users FROM hosting_event WHERE tenant_id = ?');
@@ -237,7 +285,7 @@ function tenantHandleUpdate(PDO $pdo, array $tenant, string $platform, string $t
             }
             break;
         default:
-            tenantSend($platform, $token, $chatId, 'برای شروع /start و برای راهنما /help را بفرستید.', tenantMainMenu());
+            tenantRunCore($platform, $update);
     }
 }
 

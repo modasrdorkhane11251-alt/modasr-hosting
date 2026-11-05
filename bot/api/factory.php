@@ -375,6 +375,54 @@ function factoryQuarantineMirzaBackup(int $factoryId, array $backup): string
     return $target;
 }
 
+function factoryPrepareFullCore(string $root): void
+{
+    $source = '/var/www/modasr-hosting-full/bot';
+    $destination = $root . '/core';
+    $skipDirectories = ['.git', 'storage', 'data', 'images', 'sub', 'vpnbot', 'node_modules', 'backups'];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $item) {
+        $path = $item->getPathname();
+        $relative = substr($path, strlen($source) + 1);
+        $parts = explode('/', $relative);
+        if (in_array($parts[0], $skipDirectories, true)) {
+            continue;
+        }
+        $basename = basename($path);
+        if ($basename === 'config.php' || $basename === 'error_log' || $basename === '.run.lock' || str_starts_with($basename, '.env') || str_starts_with($basename, 'config.php.')) {
+            continue;
+        }
+        $target = $destination . '/' . $relative;
+        if ($item->isDir()) {
+            if (!is_dir($target) && !mkdir($target, 0770, true) && !is_dir($target)) {
+                throw new RuntimeException('full_core_directory_failed');
+            }
+            continue;
+        }
+        $parent = dirname($target);
+        if (!is_dir($parent) && !mkdir($parent, 0770, true) && !is_dir($parent)) {
+            throw new RuntimeException('full_core_directory_failed');
+        }
+        if (!copy($path, $target)) {
+            throw new RuntimeException('full_core_copy_failed');
+        }
+    }
+
+    foreach (['config.php', 'panel/inc/config.php'] as $configPath) {
+        $example = $destination . '/' . str_replace('config.php', 'config.example.php', $configPath);
+        if (!is_file($example)) {
+            throw new RuntimeException('full_core_config_missing');
+        }
+        $config = file_get_contents($example);
+        $config = str_replace("__DIR__ . '/.env'", "__DIR__ . '/../.env'", $config);
+        file_put_contents($destination . '/' . $configPath, $config, LOCK_EX);
+        chmod($destination . '/' . $configPath, 0640);
+    }
+}
+
 function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, string $botName, array $bundle, string $planCode): array
 {
     $plan = factoryPlan($planCode);
@@ -395,14 +443,18 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
     $lockName = substr('factory_runtime_' . hash('sha256', $orderId . '|' . $ownerId), 0, 60);
     factoryAcquireLock($pdo, $lockName, 'runtime_lock_failed');
     try {
-        $existing = $pdo->prepare('SELECT id, service_name, status FROM factory_bot WHERE order_id = ?');
+        $resumeFactoryId = null;
+        $existing = $pdo->prepare('SELECT id, bot_id, service_name, status FROM factory_bot WHERE order_id = ?');
         $existing->execute([(int) $orderId]);
         $existingBot = $existing->fetch();
         if (is_array($existingBot)) {
             if (in_array((string) $existingBot['status'], ['active', 'stopped'], true) && is_file('/var/www/modasr-hosting-tenants/' . (int) $existingBot['id'] . '/tenant.json')) {
                 return ['factory_id' => (int) $existingBot['id'], 'service' => (string) $existingBot['service_name'], 'status' => (string) $existingBot['status']];
             }
-            throw new RuntimeException('runtime_recovery_required');
+            if ((string) $existingBot['status'] !== 'provisioning') {
+                throw new RuntimeException('runtime_recovery_required');
+            }
+            $resumeFactoryId = (int) $existingBot['id'];
         }
 
         $order = factoryAssertOrderPayable($pdo, $orderId, $ownerId);
@@ -416,21 +468,29 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
         $username = (string) $identities[$primary]['username'];
         $stmt = $pdo->prepare('SELECT id FROM factory_bot WHERE bot_id = ?');
         $stmt->execute([$botId]);
-        if ($stmt->fetch()) {
+        if ($resumeFactoryId === null && $stmt->fetch()) {
             throw new RuntimeException('bot_already_exists');
         }
 
         $credentialsJson = json_encode(['tokens' => $tokens, 'identities' => $identities], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        $service = 'modasr-hosting-tenant-' . $orderId . '.service';
-        $stmt = $pdo->prepare('INSERT INTO factory_bot (order_id, owner_id, bot_id, bot_name, bot_username, token_ciphertext, service_name, status) VALUES (?, ?, ?, ?, ?, ?, ?, "provisioning")');
-        $stmt->execute([$orderId, $ownerId, $botId, $botName, $username, factoryEncrypt($credentialsJson), $service]);
-        $factoryId = (int) $pdo->lastInsertId();
+        if ($resumeFactoryId !== null && !hash_equals((string) $existingBot['bot_id'], $botId)) {
+            throw new RuntimeException('runtime_recovery_required');
+        }
+        if ($resumeFactoryId !== null) {
+            $factoryId = $resumeFactoryId;
+            $service = (string) $existingBot['service_name'];
+        } else {
+            $service = 'modasr-hosting-tenant-' . $orderId . '.service';
+            $stmt = $pdo->prepare('INSERT INTO factory_bot (order_id, owner_id, bot_id, bot_name, bot_username, token_ciphertext, service_name, status) VALUES (?, ?, ?, ?, ?, ?, ?, "provisioning")');
+            $stmt->execute([$orderId, $ownerId, $botId, $botName, $username, factoryEncrypt($credentialsJson), $service]);
+            $factoryId = (int) $pdo->lastInsertId();
+        }
         $service = 'modasr-hosting-tenant-' . $factoryId . '.service';
         $update = $pdo->prepare('UPDATE factory_bot SET service_name = ? WHERE id = ?');
         $update->execute([$service, $factoryId]);
 
         $root = '/var/www/modasr-hosting-tenants/' . $factoryId;
-        if (!mkdir($root, 0770, true) && !is_dir($root)) {
+        if (!is_dir($root) && !mkdir($root, 0770, true) && !is_dir($root)) {
             throw new RuntimeException('runtime_directory_failed');
         }
         $tenant = [
@@ -479,6 +539,9 @@ function factoryProvisionRuntime(PDO $pdo, string $ownerId, string $orderId, str
         $env .= 'MODASR_OWNER_TELEGRAM_ID=' . (string) getenv('MODASR_OWNER_TELEGRAM_ID') . "\n";
         file_put_contents($root . '/.env', $env, LOCK_EX);
         chmod($root . '/.env', 0600);
+        if ((string) getenv('HOSTING_FULL_CORE_V1') === '1') {
+            factoryPrepareFullCore($root);
+        }
         if (!copy('/var/www/modasr-hosting-tenants/worker-template.php', $root . '/worker.php')) {
             throw new RuntimeException('runtime_template_failed');
         }

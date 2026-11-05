@@ -18,17 +18,19 @@ $text = restoreCustomEmojiLabel($text);
 if (!checktelegramip())
     die("Unauthorized access");
 #-----------end telegram_ip_ranges------------#
-$webhookSecret = ensureWebhookSecret();
-// The webhook secret applies to Telegram, Bale and Soroush Plus (all three
-// register their webhook URL themselves, so it can carry our ?secret= query
-// param). Rubika webhooks are registered in the Rubika bot panel and cannot
-// carry our secret query param — a documented platform limitation.
-$webhookPlatform = modasr_platform();
-if (in_array($webhookPlatform, ['telegram', 'bale', 'splus'], true) && $webhookSecret['secret'] !== '' && !webhookSecretMatches($webhookSecret['secret'])) {
-    // Webhooks registered before secret enforcement do not carry the secret
-    // yet: re-register once with the secret URL (grace), then enforce.
-    if (!migrateWebhookSecretForPlatform($webhookPlatform, $webhookSecret['secret'])) {
-        die("Unauthorized access");
+if ((string) getenv('MODASR_WORKER_INTERNAL') !== '1') {
+    $webhookSecret = ensureWebhookSecret();
+    // The webhook secret applies to Telegram, Bale and Soroush Plus (all three
+    // register their webhook URL themselves, so it can carry our ?secret= query
+    // param). Rubika webhooks are registered in the Rubika bot panel and cannot
+    // carry our secret query param — a documented platform limitation.
+    $webhookPlatform = modasr_platform();
+    if (in_array($webhookPlatform, ['telegram', 'bale', 'splus'], true) && $webhookSecret['secret'] !== '' && !webhookSecretMatches($webhookSecret['secret'])) {
+        // Webhooks registered before secret enforcement do not carry the secret
+        // yet: re-register once with the secret URL (grace), then enforce.
+        if (!migrateWebhookSecretForPlatform($webhookPlatform, $webhookSecret['secret'])) {
+            die("Unauthorized access");
+        }
     }
 }
 if ($is_bot)
