@@ -584,7 +584,7 @@ factoryEnsureSchema($pdo);
 factoryWorkflowEnsureSchema($pdo);
 factoryRegisterCustomer($pdo, $ownerId);
 $pending = factoryPending($pdo, $ownerId);
-$isRuntimeAction = preg_match('/^(stopbot|startbot)_\d+$/', $normalized) === 1 || preg_match('/^\/(markpaid|rejectpay)_\d+$/', $normalized) === 1 || preg_match('/^factory_(receipt|cancelorder)_\d+$/', $normalized) === 1 || preg_match('/^factory_platform_[tbrs+]+$/', $normalized) === 1 || preg_match('/^factory_backup_(upload|skip)$/', $normalized) === 1 || preg_match('/^\/usetemplate_(welcome|report|followup)$/', $normalized) === 1 || str_starts_with($normalized, '/setlimit_') || str_starts_with($normalized, '/setprice') || str_starts_with($normalized, '/setcard_') || preg_match('/^\/(validate|preview|publish|rollback|run|flowinfo|archive)_\d+$/', $normalized) === 1;
+$isRuntimeAction = preg_match('/^(stopbot|startbot)_\d+$/', $normalized) === 1 || preg_match('/^\/(markpaid|rejectpay)_\d+$/', $normalized) === 1 || preg_match('/^factory_(receipt|cancelorder)_\d+$/', $normalized) === 1 || preg_match('/^factory_count_[1-4]$/', $normalized) === 1 || preg_match('/^factory_platform_[tbrs+]+$/', $normalized) === 1 || preg_match('/^factory_backup_(upload|skip)$/', $normalized) === 1 || preg_match('/^\/usetemplate_(welcome|report|followup)$/', $normalized) === 1 || str_starts_with($normalized, '/setlimit_') || str_starts_with($normalized, '/setprice') || str_starts_with($normalized, '/setcard_') || preg_match('/^\/(validate|preview|publish|rollback|run|flowinfo|archive)_\d+$/', $normalized) === 1;
 if ($pending === null && !in_array($normalized, $knownCommands, true) && !$isRuntimeAction) {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['handled' => false]);
@@ -1364,41 +1364,42 @@ try {
     } elseif ($pending !== null && $pending['step'] === 'type' && $normalized === 'factory_type_panel') {
         factoryReply($chatId, 'ربات نمایندگی پنل هنوز فعال نیست. در حال حاضر فقط ربات نمایندگی VPN قابل سفارش است.', factoryMenu());
     } elseif ($pending !== null && $pending['step'] === 'type' && $normalized === 'factory_type_vpn') {
-        factorySavePending($pdo, $ownerId, 'platform');
+        factorySavePending($pdo, $ownerId, 'platform_count');
         $base = number_format(factoryPriceToman($pdo));
         $keyboard = ['inline_keyboard' => [
             [
-                ['text' => 'تلگرام تکی', 'callback_data' => 'factory_platform_t'],
-                ['text' => 'بله تکی', 'callback_data' => 'factory_platform_b'],
+                ['text' => '1️⃣ تکی', 'callback_data' => 'factory_count_1'],
+                ['text' => '2️⃣ دوتایی', 'callback_data' => 'factory_count_2'],
             ],
             [
-                ['text' => 'روبیکا تکی', 'callback_data' => 'factory_platform_r'],
-                ['text' => 'سروش تکی', 'callback_data' => 'factory_platform_s'],
+                ['text' => '3️⃣ سه‌تایی', 'callback_data' => 'factory_count_3'],
+                ['text' => '4️⃣ هر چهار پلتفرم', 'callback_data' => 'factory_count_4'],
             ],
-            [
-                ['text' => 'تلگرام + بله', 'callback_data' => 'factory_platform_t+b'],
-                ['text' => 'تلگرام + روبیکا', 'callback_data' => 'factory_platform_t+r'],
-            ],
-            [
-                ['text' => 'تلگرام + سروش', 'callback_data' => 'factory_platform_t+s'],
-                ['text' => 'بله + روبیکا', 'callback_data' => 'factory_platform_b+r'],
-            ],
-            [
-                ['text' => 'بله + سروش', 'callback_data' => 'factory_platform_b+s'],
-                ['text' => 'روبیکا + سروش', 'callback_data' => 'factory_platform_r+s'],
-            ],
-            [
-                ['text' => 'تلگرام + بله + روبیکا', 'callback_data' => 'factory_platform_t+b+r'],
-                ['text' => 'تلگرام + بله + سروش', 'callback_data' => 'factory_platform_t+b+s'],
-            ],
-            [
-                ['text' => 'تلگرام + روبیکا + سروش', 'callback_data' => 'factory_platform_t+r+s'],
-                ['text' => 'بله + روبیکا + سروش', 'callback_data' => 'factory_platform_b+r+s'],
-            ],
-            [['text' => 'هر چهار پلتفرم', 'callback_data' => 'factory_platform_t+b+r+s']],
             [['text' => '⬅️ بازگشت', 'callback_data' => '/create']],
         ]];
-        factoryReply($chatId, "🧩 <b>انتخاب بسته پلتفرم</b>\n\nهر پلتفرم {$base} تومان؛ دوپلتفرم دوبرابر، سه‌پلتفرم سه‌برابر و چهارپلتفرم چهاربرابر محاسبه می‌شود.\n\nتکی، دوتایی، سه‌تایی یا هر چهار را انتخاب کن. روبیکا به Webhook HTTPS مستقل نیاز دارد.", $keyboard);
+        factoryReply($chatId, "🧩 <b>انتخاب بسته پلتفرم</b>\n\nهر پلتفرم {$base} تومان؛ قیمت نهایی از تعداد پلتفرم محاسبه می‌شود.\n\nابتدا نوع بسته را انتخاب کن و سپس پلتفرم‌های دلخواهت را مشخص کن. روبیکا به Webhook HTTPS مستقل نیاز دارد.", $keyboard);
+    } elseif ($pending !== null && $pending['step'] === 'platform_count' && preg_match('/^factory_count_([1-4])$/', $normalized, $matches)) {
+        $count = (int) $matches[1];
+        $choices = factoryPlanChoices($count);
+        $labels = factoryCatalogPlatforms();
+        $rows = [];
+        foreach ($choices as $planCode => $package) {
+            $platformLabels = array_map(static fn(string $platform): string => $labels[$platform], $package[1]);
+            $rows[] = [[
+                'text' => implode(' + ', $platformLabels),
+                'callback_data' => 'factory_platform_' . substr($planCode, 2),
+            ]];
+        }
+        $keyboard = ['inline_keyboard' => array_chunk($rows, 2)];
+        $keyboard['inline_keyboard'][] = [['text' => '⬅️ نوع بسته', 'callback_data' => 'factory_type_vpn']];
+        factorySavePending($pdo, $ownerId, 'platform');
+        $title = match ($count) {
+            1 => 'تکی',
+            2 => 'دوتایی',
+            3 => 'سه‌تایی',
+            4 => 'هر چهار پلتفرم',
+        };
+        factoryReply($chatId, "🧩 <b>بسته {$title}</b>\n\nپلتفرم یا ترکیب دلخواه را انتخاب کن. قیمت نهایی پیش از پرداخت دوباره نمایش داده می‌شود.", $keyboard);
     } elseif ($pending !== null && $pending['step'] === 'platform' && preg_match('/^factory_platform_([tbrs+]+)$/', $normalized, $matches)) {
         $planCode = 'v:' . $matches[1];
         $plan = factoryPlan($planCode);

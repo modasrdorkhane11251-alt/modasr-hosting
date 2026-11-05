@@ -91,6 +91,11 @@ $check($unknownTemplateBlocked, 'unknown workflow template blocked');
 $check(factoryPlan('vpn')['code'] === 'v:t', 'legacy VPN plan maps to Telegram');
 $check(count(factoryCatalogPlatforms()) === 4, 'all four platforms are defined');
 $check(count(factoryCatalogPackages()) === 15, 'all fifteen platform packages are defined');
+$check(count(factoryPlanChoices(1)) === 4, 'single-platform category has four choices');
+$check(count(factoryPlanChoices(2)) === 6, 'dual-platform category has six choices');
+$check(count(factoryPlanChoices(3)) === 4, 'triple-platform category has four choices');
+$check(count(factoryPlanChoices(4)) === 1, 'complete category has one choice');
+$check(array_key_first(factoryPlanChoices(4)) === 'v:t+b+r+s', 'complete category selects all four platforms');
 $check(count(factoryPlan('v:t+r+s')['platforms']) === 3, 'triple package contains three platforms');
 $check(count(factoryPlan('v:t+b+r+s')['platforms']) === 4, 'complete package contains all four platforms');
 $check(factoryPlan('v:t+b')['platforms'] === ['telegram', 'bale'], 'Telegram and Bale dual package exists');
@@ -135,6 +140,14 @@ $check(str_contains($workerSource, "platform . ':' . \$userId"), 'platform-prefi
 $check(str_contains($workerSource, 'if (!$newEvent)'), 'duplicate updates return before sending a response');
 $check(str_contains($workerSource, "'root_owner_ids'"), 'worker checks hidden root owner');
 $check(!str_contains($workerSource, "'command' => 'owner'"), 'owner command is not registered in customer commands');
+
+$invalidPlatformCount = false;
+try {
+    factoryPlanChoices(5);
+} catch (RuntimeException $e) {
+    $invalidPlatformCount = $e->getMessage() === 'platform_count_invalid';
+}
+$check($invalidPlatformCount, 'invalid platform category is rejected');
 
 $backupStart = strpos($factorySource, 'function factoryQuarantineMirzaBackup');
 $backupEnd = strpos($factorySource, 'function factoryProvisionRuntime', $backupStart);

@@ -28,6 +28,17 @@ function factoryCatalogPackages(): array
     ];
 }
 
+function factoryPlanChoices(int $platformCount): array
+{
+    if ($platformCount < 1 || $platformCount > 4) {
+        throw new RuntimeException('platform_count_invalid');
+    }
+    return array_filter(
+        factoryCatalogPackages(),
+        static fn(array $package): bool => count($package[1]) === $platformCount
+    );
+}
+
 function factoryPlan(string $planCode): array
 {
     if ($planCode === 'vpn') {
