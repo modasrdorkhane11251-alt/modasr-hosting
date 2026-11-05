@@ -93,6 +93,20 @@ function factoryPlatformTokenValid(string $platform, string $token): bool
     return false;
 }
 
+function factoryProviderErrorCode(string $description, int $status): string
+{
+    $description = strtolower($description);
+    $reason = match (true) {
+        str_contains($description, 'reply markup') || str_contains($description, 'button_data_invalid') || str_contains($description, 'keyboard') => 'reply_markup',
+        str_contains($description, 'message text is empty') || str_contains($description, 'message is empty') => 'message_empty',
+        str_contains($description, 'chat not found') || str_contains($description, 'user not found') => 'chat_not_found',
+        str_contains($description, 'bot was blocked') || str_contains($description, 'blocked by user') => 'bot_blocked',
+        str_contains($description, 'callback query') || str_contains($description, 'query is too old') || str_contains($description, 'query id') => 'callback_query',
+        default => 'http_' . $status,
+    };
+    return 'provider_rejected_' . $status . '|' . $reason;
+}
+
 function factoryPlatformRequest(string $platform, string $token, string $method, array $params = [], int $timeout = 30): array
 {
     if (!in_array($platform, array_keys(factoryCatalogPlatforms()), true) || $token === '') {

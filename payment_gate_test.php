@@ -155,5 +155,11 @@ $backupSource = substr($factorySource, $backupStart, $backupEnd - $backupStart);
 $check(!str_contains($backupSource, 'ZipArchive'), 'Backup ZIP is never extracted');
 $check(!str_contains($backupSource, '->exec('), 'Backup SQL is never executed');
 
+$check(factoryProviderErrorCode('Bad Request: can\'t parse reply markup', 400) === 'provider_rejected_400|reply_markup', 'reply markup error is classified');
+$check(factoryProviderErrorCode('Bad Request: message text is empty', 400) === 'provider_rejected_400|message_empty', 'empty message error is classified');
+$check(factoryProviderErrorCode('Bad Request: query is too old', 400) === 'provider_rejected_400|callback_query', 'old callback error is classified');
+$check(factoryProviderErrorCode('Bad Request: chat not found', 400) === 'provider_rejected_400|chat_not_found', 'chat error is classified');
+$check(factoryProviderErrorCode('unknown provider error', 400) === 'provider_rejected_400|http_400', 'unknown provider error stays bounded');
+
 echo "Passed: {$passed}  Failed: {$failed}\n";
 exit($failed === 0 ? 0 : 1);

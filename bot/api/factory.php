@@ -136,7 +136,7 @@ function factoryApi(string $token, string $method, array $params = [], int $time
         if (in_array($status, [400, 401], true) && (str_contains($description, 'unauthorized') || str_contains($description, 'invalid token') || str_contains($description, 'bot token') || str_contains($description, 'token'))) {
             throw new RuntimeException('provider_unauthorized');
         }
-        throw new RuntimeException('provider_rejected_' . $status);
+        throw new RuntimeException(factoryProviderErrorCode($description, $status));
     }
     return $decoded['result'] ?? [];
 }
@@ -153,7 +153,11 @@ function factoryReply(int|string $chatId, string $text, array $keyboard = []): v
     if ($keyboard !== []) {
         $payload['reply_markup'] = json_encode($keyboard, JSON_UNESCAPED_UNICODE);
     }
-    factoryApi($token, 'sendMessage', $payload);
+    try {
+        factoryApi($token, 'sendMessage', $payload);
+    } catch (RuntimeException $e) {
+        throw new RuntimeException('telegram_reply_failed|' . $e->getMessage());
+    }
 }
 
 function factoryMenu(): array
@@ -593,9 +597,13 @@ if ($pending === null && !in_array($normalized, $knownCommands, true) && !$isRun
 
 $isOwner = $ownerTelegramId !== '' && hash_equals($ownerTelegramId, $ownerId);
 if (isset($update['callback_query']['id'])) {
-    factoryApi((string) getenv('TELEGRAM_TOKEN'), 'answerCallbackQuery', [
-        'callback_query_id' => $update['callback_query']['id'],
-    ]);
+    try {
+        factoryApi((string) getenv('TELEGRAM_TOKEN'), 'answerCallbackQuery', [
+            'callback_query_id' => $update['callback_query']['id'],
+        ]);
+    } catch (RuntimeException) {
+        factoryLog($pdo, $ownerId, 'callback_answer_failed', null, 'callback_query');
+    }
 }
 
 try {
@@ -1494,6 +1502,7 @@ try {
     $friendly = match (true) {
         $error === 'provider_unauthorized' => 'Token نامعتبر یا باطل‌شده است. در BotFather ربات را بررسی کن، Token را revoke و Token جدید بفرست.',
         $error === 'provider_unreachable' => 'اتصال به Telegram برای اعتبارسنجی Token برقرار نشد. چند لحظه دیگر دوباره تلاش کن.',
+        str_starts_with($error, 'telegram_reply_failed') => 'ارسال منو به تلگرام انجام نشد. لطفاً دوباره روی همان گزینه بزن یا /start را بفرست؛ این خطا مربوط به Token شما نیست.',
         str_starts_with($error, 'provider_') => 'اعتبارسنجی Token با Telegram انجام نشد. صحت Token را بررسی و دوباره بفرست.',
         $error === 'bot_already_exists' => 'این ربات قبلاً در Bot Factory ثبت شده و نمی‌توان دوباره ساخت.',
         $error === 'payment_required' => 'پرداخت این سفارش هنوز تأیید نشده است. ساخت ربات فقط پس از ثبت وضعیت paid انجام می‌شود.',
