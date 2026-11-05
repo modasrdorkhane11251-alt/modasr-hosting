@@ -4,19 +4,27 @@ declare(strict_types=1);
 
 function factoryCatalogPlatforms(): array
 {
-    return ['telegram' => 'تلگرام', 'rubika' => 'روبیکا', 'soroush' => 'سروش'];
+    return ['telegram' => 'تلگرام', 'bale' => 'بله', 'rubika' => 'روبیکا', 'soroush' => 'سروش'];
 }
 
 function factoryCatalogPackages(): array
 {
     return [
         'v:t' => ['vpn', ['telegram']],
+        'v:b' => ['vpn', ['bale']],
         'v:r' => ['vpn', ['rubika']],
         'v:s' => ['vpn', ['soroush']],
+        'v:t+b' => ['vpn', ['telegram', 'bale']],
         'v:t+r' => ['vpn', ['telegram', 'rubika']],
         'v:t+s' => ['vpn', ['telegram', 'soroush']],
+        'v:b+r' => ['vpn', ['bale', 'rubika']],
+        'v:b+s' => ['vpn', ['bale', 'soroush']],
         'v:r+s' => ['vpn', ['rubika', 'soroush']],
+        'v:t+b+r' => ['vpn', ['telegram', 'bale', 'rubika']],
+        'v:t+b+s' => ['vpn', ['telegram', 'bale', 'soroush']],
         'v:t+r+s' => ['vpn', ['telegram', 'rubika', 'soroush']],
+        'v:b+r+s' => ['vpn', ['bale', 'rubika', 'soroush']],
+        'v:t+b+r+s' => ['vpn', ['telegram', 'bale', 'rubika', 'soroush']],
     ];
 }
 
@@ -65,7 +73,7 @@ function factoryNormalizePlatformToken(string $platform, string $token): string
 
 function factoryPlatformTokenValid(string $platform, string $token): bool
 {
-    if ($platform === 'telegram') {
+    if (in_array($platform, ['telegram', 'bale'], true)) {
         return preg_match('/^\d{6,12}:[A-Za-z0-9_-]{20,}$/', $token) === 1;
     }
     if (in_array($platform, ['rubika', 'soroush'], true)) {
@@ -81,6 +89,7 @@ function factoryPlatformRequest(string $platform, string $token, string $method,
     }
     $url = match ($platform) {
         'telegram' => 'https://api.telegram.org/bot' . $token . '/' . $method,
+        'bale' => 'https://tapi.bale.ai/bot' . $token . '/' . $method,
         'soroush' => 'https://api.splus.ir/bot' . $token . '/' . $method,
         'rubika' => 'https://botapi.rubika.ir/v3/' . $token . '/' . $method,
     };

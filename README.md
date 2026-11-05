@@ -8,7 +8,8 @@ Private control plane and runtime templates for MODASR multi-tenant bot hosting.
 - Telegram Factory wizard with paid-order guard and manual receipt review
 - Versioned workflow engine
 - Tenant provisioning in stopped state
-- Telegram and Soroush long-polling worker template
+- Telegram, Bale and Soroush long-polling worker template
+- Fifteen packages across four platforms: Telegram, Bale, Rubika and Soroush
 - Rubika packages remain blocked until an independent HTTPS webhook route is available
 
 ## Security boundaries

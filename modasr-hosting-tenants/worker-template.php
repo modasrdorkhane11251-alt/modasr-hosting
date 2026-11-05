@@ -30,7 +30,7 @@ if (!is_array($tenant) || empty($tenant['id']) || !is_array($tenant['platforms']
     exit(1);
 }
 
-$platforms = array_values(array_intersect($tenant['platforms'], ['telegram', 'soroush']));
+$platforms = array_values(array_intersect($tenant['platforms'], ['telegram', 'bale', 'soroush']));
 if ($platforms === []) {
     fwrite(STDOUT, "no_polling_platform\n");
     exit(0);
@@ -78,6 +78,7 @@ function tenantApi(string $platform, string $token, string $method, array $param
 {
     $base = match ($platform) {
         'telegram' => 'https://api.telegram.org/bot',
+        'bale' => 'https://tapi.bale.ai/bot',
         'soroush' => 'https://api.splus.ir/bot',
         default => throw new RuntimeException('platform_not_supported'),
     };
@@ -133,7 +134,12 @@ function tenantMainMenu(): array
 
 function tenantPlatformIndex(string $platform): int
 {
-    return $platform === 'telegram' ? 1 : 2;
+    return match ($platform) {
+        'telegram' => 1,
+        'soroush' => 2,
+        'bale' => 3,
+        default => throw new RuntimeException('platform_not_supported'),
+    };
 }
 
 function tenantHandleUpdate(PDO $pdo, array $tenant, string $platform, string $token, array $update, int &$offset): void

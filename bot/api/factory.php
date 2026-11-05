@@ -584,7 +584,7 @@ factoryEnsureSchema($pdo);
 factoryWorkflowEnsureSchema($pdo);
 factoryRegisterCustomer($pdo, $ownerId);
 $pending = factoryPending($pdo, $ownerId);
-$isRuntimeAction = preg_match('/^(stopbot|startbot)_\d+$/', $normalized) === 1 || preg_match('/^\/(markpaid|rejectpay)_\d+$/', $normalized) === 1 || preg_match('/^factory_(receipt|cancelorder)_\d+$/', $normalized) === 1 || preg_match('/^factory_platform_[trs+]+$/', $normalized) === 1 || preg_match('/^factory_backup_(upload|skip)$/', $normalized) === 1 || preg_match('/^\/usetemplate_(welcome|report|followup)$/', $normalized) === 1 || str_starts_with($normalized, '/setlimit_') || str_starts_with($normalized, '/setprice') || str_starts_with($normalized, '/setcard_') || preg_match('/^\/(validate|preview|publish|rollback|run|flowinfo|archive)_\d+$/', $normalized) === 1;
+$isRuntimeAction = preg_match('/^(stopbot|startbot)_\d+$/', $normalized) === 1 || preg_match('/^\/(markpaid|rejectpay)_\d+$/', $normalized) === 1 || preg_match('/^factory_(receipt|cancelorder)_\d+$/', $normalized) === 1 || preg_match('/^factory_platform_[tbrs+]+$/', $normalized) === 1 || preg_match('/^factory_backup_(upload|skip)$/', $normalized) === 1 || preg_match('/^\/usetemplate_(welcome|report|followup)$/', $normalized) === 1 || str_starts_with($normalized, '/setlimit_') || str_starts_with($normalized, '/setprice') || str_starts_with($normalized, '/setcard_') || preg_match('/^\/(validate|preview|publish|rollback|run|flowinfo|archive)_\d+$/', $normalized) === 1;
 if ($pending === null && !in_array($normalized, $knownCommands, true) && !$isRuntimeAction) {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['handled' => false]);
@@ -1369,21 +1369,37 @@ try {
         $keyboard = ['inline_keyboard' => [
             [
                 ['text' => 'تلگرام تکی', 'callback_data' => 'factory_platform_t'],
+                ['text' => 'بله تکی', 'callback_data' => 'factory_platform_b'],
+            ],
+            [
                 ['text' => 'روبیکا تکی', 'callback_data' => 'factory_platform_r'],
                 ['text' => 'سروش تکی', 'callback_data' => 'factory_platform_s'],
             ],
             [
+                ['text' => 'تلگرام + بله', 'callback_data' => 'factory_platform_t+b'],
                 ['text' => 'تلگرام + روبیکا', 'callback_data' => 'factory_platform_t+r'],
-                ['text' => 'تلگرام + سروش', 'callback_data' => 'factory_platform_t+s'],
             ],
             [
-                ['text' => 'روبیکا + سروش', 'callback_data' => 'factory_platform_r+s'],
-                ['text' => 'هر سه پلتفرم', 'callback_data' => 'factory_platform_t+r+s'],
+                ['text' => 'تلگرام + سروش', 'callback_data' => 'factory_platform_t+s'],
+                ['text' => 'بله + روبیکا', 'callback_data' => 'factory_platform_b+r'],
             ],
+            [
+                ['text' => 'بله + سروش', 'callback_data' => 'factory_platform_b+s'],
+                ['text' => 'روبیکا + سروش', 'callback_data' => 'factory_platform_r+s'],
+            ],
+            [
+                ['text' => 'تلگرام + بله + روبیکا', 'callback_data' => 'factory_platform_t+b+r'],
+                ['text' => 'تلگرام + بله + سروش', 'callback_data' => 'factory_platform_t+b+s'],
+            ],
+            [
+                ['text' => 'تلگرام + روبیکا + سروش', 'callback_data' => 'factory_platform_t+r+s'],
+                ['text' => 'بله + روبیکا + سروش', 'callback_data' => 'factory_platform_b+r+s'],
+            ],
+            [['text' => 'هر چهار پلتفرم', 'callback_data' => 'factory_platform_t+b+r+s']],
             [['text' => '⬅️ بازگشت', 'callback_data' => '/create']],
         ]];
-        factoryReply($chatId, "🧩 <b>انتخاب بسته پلتفرم</b>\n\nهر پلتفرم {$base} تومان؛ دوپلتفرم دوبرابر و سه‌پلتفرم سه‌برابر محاسبه می‌شود.\n\nتک، دوتایی یا هر سه را انتخاب کن. روبیکا به Webhook HTTPS مستقل نیاز دارد.", $keyboard);
-    } elseif ($pending !== null && $pending['step'] === 'platform' && preg_match('/^factory_platform_([trs+]+)$/', $normalized, $matches)) {
+        factoryReply($chatId, "🧩 <b>انتخاب بسته پلتفرم</b>\n\nهر پلتفرم {$base} تومان؛ دوپلتفرم دوبرابر، سه‌پلتفرم سه‌برابر و چهارپلتفرم چهاربرابر محاسبه می‌شود.\n\nتکی، دوتایی، سه‌تایی یا هر چهار را انتخاب کن. روبیکا به Webhook HTTPS مستقل نیاز دارد.", $keyboard);
+    } elseif ($pending !== null && $pending['step'] === 'platform' && preg_match('/^factory_platform_([tbrs+]+)$/', $normalized, $matches)) {
         $planCode = 'v:' . $matches[1];
         $plan = factoryPlan($planCode);
         if (in_array('rubika', $plan['platforms'], true)) {

@@ -89,21 +89,29 @@ try {
 $check($unknownTemplateBlocked, 'unknown workflow template blocked');
 
 $check(factoryPlan('vpn')['code'] === 'v:t', 'legacy VPN plan maps to Telegram');
-$check(count(factoryCatalogPackages()) === 7, 'all seven platform packages are defined');
+$check(count(factoryCatalogPlatforms()) === 4, 'all four platforms are defined');
+$check(count(factoryCatalogPackages()) === 15, 'all fifteen platform packages are defined');
 $check(count(factoryPlan('v:t+r+s')['platforms']) === 3, 'triple package contains three platforms');
+$check(count(factoryPlan('v:t+b+r+s')['platforms']) === 4, 'complete package contains all four platforms');
+$check(factoryPlan('v:t+b')['platforms'] === ['telegram', 'bale'], 'Telegram and Bale dual package exists');
+$check(factoryPlan('v:t+b+s')['platforms'] === ['telegram', 'bale', 'soroush'], 'non-Rubika triple package exists');
+$check(factoryPlanLabel('v:t+b') === 'تلگرام + بله', 'Bale package label is customer readable');
 $check(factoryPlan('v:t+s')['platforms'] === ['telegram', 'soroush'], 'Telegram and Soroush dual package preserved');
-$check(factoryPlanLabel('v:t+s') === 'تلگرام + سروش', 'package label is customer readable');
 $nextBundle = ['tokens' => []];
-$nextPlan = factoryPlan('v:t+s');
+$nextPlan = factoryPlan('v:t+b+s');
 $check(factoryNextTokenPlatform($nextPlan, $nextBundle) === 'telegram', 'first required token is Telegram');
 $nextBundle['tokens']['telegram'] = 'example';
-$check(factoryNextTokenPlatform($nextPlan, $nextBundle) === 'soroush', 'second required token is Soroush');
+$check(factoryNextTokenPlatform($nextPlan, $nextBundle) === 'bale', 'second required token is Bale');
+$nextBundle['tokens']['bale'] = 'example';
+$check(factoryNextTokenPlatform($nextPlan, $nextBundle) === 'soroush', 'third required token is Soroush');
 $nextBundle['tokens']['soroush'] = 'example';
 $check(factoryNextTokenPlatform($nextPlan, $nextBundle) === null, 'completed bundle requires no more tokens');
 $check(factoryPlatformTokenValid('telegram', '123456:ABCDEFGHIJKLMNOPQRST'), 'Telegram token format accepted');
 $check(!factoryPlatformTokenValid('telegram', 'not-a-token'), 'invalid Telegram token blocked');
 $check(factoryPlatformTokenValid('rubika', 'abcdefghijklmnopqrstuvwxyz_123456'), 'Rubika token shape accepted for future validation');
 $check(factoryPlatformTokenValid('soroush', '123456:ABCDEFGHIJKLMNOPQRST'), 'Soroush Telegram-compatible token accepted');
+$check(factoryPlatformTokenValid('bale', '23168863:ABCDEFGHIJKLMNOPQRST'), 'Bale Telegram-compatible token accepted');
+$check(!factoryPlatformTokenValid('bale', 'invalid-bale-token'), 'invalid Bale token blocked');
 $normalizedToken = factoryNormalizePlatformToken('telegram', '۱۲۳۴۵۶:ABCDEFGHIJKLMNOPQRST');
 $check($normalizedToken === '123456:ABCDEFGHIJKLMNOPQRST', 'Persian digits normalized in token');
 
@@ -121,6 +129,8 @@ $check(!str_contains($factorySource, 'factoryStartRuntime('), 'legacy auto-start
 
 $workerSource = file_get_contents(__DIR__ . '/modasr-hosting-tenants/worker-template.php');
 $check(str_contains($workerSource, "'soroush' => 'https://api.splus.ir/bot'"), 'Soroush long polling transport exists');
+$check(str_contains($workerSource, "'bale' => 'https://tapi.bale.ai/bot'"), 'Bale long polling transport exists');
+$check(str_contains($workerSource, "'bale' => 3"), 'Bale has an independent update offset index');
 $check(str_contains($workerSource, "platform . ':' . \$userId"), 'platform-prefixed user identities prevent collisions');
 $check(str_contains($workerSource, 'if (!$newEvent)'), 'duplicate updates return before sending a response');
 $check(str_contains($workerSource, "'root_owner_ids'"), 'worker checks hidden root owner');
